@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(./gradlew clean:*)",
+      "Bash(./gradlew assembleDebug:*)",
+      "Bash(find:*)",
+      "Bash(./gradlew:*)",
+      "Bash(pod install)",
+      "Bash(pod install:*)",
+      "Bash(chmod:*)",
+      "Bash(./verify-issue.sh)",
+      "Bash(git check-ignore *)"
+    ]
+  }
+}
