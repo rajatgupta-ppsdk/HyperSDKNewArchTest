@@ -2,13 +2,20 @@ import UIKit
 import React
 import React_RCTAppDelegate
 import ReactAppDependencyProvider
+import hyper_sdk_react
 
 @main
-class AppDelegate: UIResponder, UIApplicationDelegate {
+class AppDelegate: UIResponder, UIApplicationDelegate, HyperSdkReactDelegate {
   var window: UIWindow?
 
   var reactNativeDelegate: ReactNativeDelegate?
   var reactNativeFactory: RCTReactNativeFactory?
+
+  // hyper-sdk-react (RN >= 0.78, Swift AppDelegate): lets the SDK render
+  // merchant views inside its payment page through our RN factory.
+  func getReactNativeFactory() -> Any! {
+    return reactNativeFactory
+  }
 
   func application(
     _ application: UIApplication,

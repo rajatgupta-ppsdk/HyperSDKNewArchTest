@@ -1,97 +1,206 @@
-This is a new [**React Native**](https://reactnative.dev) project, bootstrapped using [`@react-native-community/cli`](https://github.com/react-native-community/cli).
+# HyperSDKNewArchTest
 
-# Getting Started
+A minimal React Native app for reproducing and validating **hyper-sdk-react** against
+React Native's **New Architecture** (Fabric + TurboModules).
 
-> **Note**: Make sure you have completed the [Set Up Your Environment](https://reactnative.dev/docs/set-up-your-environment) guide before proceeding.
+It runs a harness that walks the full HyperSDK sequence — listener, `createHyperServices`,
+signed `initiate`, order creation + signing, and a live `HyperFragmentView` payment widget —
+printing every native event on screen so failures are attributable to a specific step.
 
-## Step 1: Start Metro
+Findings from this reproduction live in [`NEW_ARCH_INTEGRATION_FINDINGS.md`](./NEW_ARCH_INTEGRATION_FINDINGS.md).
 
-First, you will need to run **Metro**, the JavaScript build tool for React Native.
+## Versions
 
-To start the Metro dev server, run the following command from the root of your React Native project:
+| | Version |
+|---|---|
+| react-native | 0.86.2 (New Architecture mandatory) |
+| react | 19.2.3 |
+| hyper-sdk-react | 5.0.34 (pinned exactly — the version in the merchant's original ticket) |
+| HyperSDK native — iOS pod | 2.2.2.8 |
+| HyperSDK native — Android | resolved by `hypersdk.plugin` |
+| Node | >= 20 (20.20.2 verified) |
 
-```sh
-# Using npm
-npm start
+`newArchEnabled=true` in `android/gradle.properties`; verified live via the harness's
+`Fabric: YES` line and the SDK's generated `IS_NEW_ARCHITECTURE_ENABLED = true`.
 
-# OR using Yarn
-yarn start
-```
+`hyper-sdk-react` is pinned **exactly** (no caret) so the reproduction stays stable — a
+caret would silently resolve to 5.0.35 on a fresh install and change what is being tested.
 
-## Step 2: Build and run your app
+The merchant quoted two versions: **5.0.34** in the original ticket, and **5.0.35** in their
+later blank-widget reproduction. This project tracks 5.0.34. Both were verified to build on
+RN 0.86.2 with the New Architecture enabled.
 
-With Metro running, open a new terminal window/pane from the root of your React Native project, and use one of the following commands to build and run your Android or iOS app:
+One consequence of staying on 5.0.34: it carries a Gradle scoping bug that 5.0.35 fixes, so
+the Android build fails unless `newArchEnabled=true` is present **literally** — do not delete
+that line even though React Native prints that you can. See the findings doc.
 
-### Android
+## Prerequisites
 
-```sh
-# Using npm
-npm run android
-
-# OR using Yarn
-yarn android
-```
-
-### iOS
-
-For iOS, remember to install CocoaPods dependencies (this only needs to be run on first clone or after updating native deps).
-
-The first time you create a new project, run the Ruby bundler to install CocoaPods itself:
-
-```sh
-bundle install
-```
-
-Then, and every time you update your native dependencies, run:
+**Node 20 or newer.** Metro crashes on Node 18 with
+`TypeError: configs.toReversed is not a function`.
 
 ```sh
-bundle exec pod install
+nvm use 20.20.2
+node -v   # must be >= 20
 ```
 
-For more information, please visit [CocoaPods Getting Started guide](https://guides.cocoapods.org/using/getting-started.html).
+`launchPackager.command` spawns a fresh login shell, so `nvm use` in your current terminal
+does not reach it. If Node 18 keeps coming back, check `~/.zshrc` for a hardcoded
+`.nvm/versions/node/v18.*/bin` entry on `PATH` — it overrides nvm's default.
+
+## Credentials
+
+### 1. Runtime credentials — `credentials.local.json`
+
+This file is **gitignored**. Create it in the project root and fill in your sandbox values.
+
+```jsonc
+{
+  "merchantId": "<your sandbox merchantId>",
+  "clientId":   "<your sandbox clientId>",
+  "customerId": "test_customer_001",
+  "environment": "sandbox",
+
+  // Only needed to CREATE an order. Skip it by setting "orderId" below.
+  "apiKey": "<sandbox API key>",
+  "amount": "1.00",
+  "mobile": "9999999999",
+  "email":  "test@example.com",
+
+  // Required for signing. PEM armour optional - bare base64 DER also works.
+  "merchantKeyId": "<merchant key id>",
+  "privateKey": "<RSA private key>",
+
+  // Optional: reuse an EXISTING sandbox order instead of creating one.
+  // When set, "apiKey" is not needed.
+  "orderId": "",
+
+  "fragmentService": "in.juspay.hyperpay",
+  "fragmentAction": "paymentPage",
+  "fragmentNamespace": "paymentWidget"
+}
+```
+
+| Field | Needed for | Notes |
+|---|---|---|
+| `merchantId`, `clientId` | everything | No fallback — a missing value fails visibly in the log |
+| `merchantKeyId`, `privateKey` | **signing** | Both `initiate` and the fragment payload are signed |
+| `apiKey` | **creating an order** only | Not needed if you supply `orderId` |
+| `orderId` | optional | An existing sandbox `order_id`; skips `/order/create` |
+| `fragmentNamespace` | the widget | Must be `paymentWidget` or `quickPay` — the SDK knows no others |
+
+Notes on the private key:
+
+- Both PKCS#1 (`BEGIN RSA PRIVATE KEY`) and PKCS#8 (`BEGIN PRIVATE KEY`) work.
+- Bare base64 with no `-----BEGIN-----` lines also works — armour is added automatically.
+- In JSON, newlines inside the key must be escaped as `\n`.
+- Signing happens in-app via `jsrsasign` (see `hyperApi.ts`), a JS port of the pieces of the
+  official example's `HyperAPIUtils` native module. **Harness-only** — `hyper-sdk-react`
+  itself does not require it.
+
+### 2. Build-time `clientId` — a different thing
+
+This selects which **asset bundle** is downloaded at build time, and is separate from the
+runtime credentials above. It is committed, so it stays the public demo merchant `geddit`:
+
+- `android/build.gradle` → `ext { clientId = 'geddit' }`
+- `ios/MerchantConfig.txt` → `clientId = geddit`
+
+Your build-time `clientId` must have a **published asset bundle**, or the Android build
+fails at configure time with an S3 `403`. Check before changing it:
 
 ```sh
-# Using npm
-npm run ios
-
-# OR using Yarn
-yarn ios
+curl -s -o /dev/null -w "%{http_code}\n" \
+  "https://public.releases.juspay.in/hyper-sdk/in/juspay/merchants/hyper.assets.<clientId>/sdk_build_config.json"
 ```
 
-If everything is set up correctly, you should see your new app running in the Android Emulator, iOS Simulator, or your connected device.
+`200` means published. `403` is indistinguishable from "not found" — a nonsense id returns
+the same — so treat it as "no bundle for this id". Runtime credentials may differ from the
+build-time `clientId`.
 
-This is one way to run your app — you can also build it directly from Android Studio or Xcode.
+## Platform setup
 
-## Step 3: Modify your app
+Already applied in this repo, recorded here because none of it is obvious.
 
-Now that you have successfully run the app, let's make changes!
+### Android — Jetifier is required
 
-Open `App.tsx` in your text editor of choice and make some changes. When you save, your app will automatically update and reflect these changes — this is powered by [Fast Refresh](https://reactnative.dev/docs/fast-refresh).
+`hyperupi` pulls in NPCI's `pinactivitycomponent`, which still references the pre-AndroidX
+`android.support.v7` library. Without Jetifier the app crashes on launch with
+`NoClassDefFoundError: android/support/v7/app/AppCompatActivity`.
 
-When you want to forcefully reload, for example to reset the state of your app, you can perform a full reload:
+```properties
+# android/gradle.properties
+android.enableJetifier=true
+android.jetifier.ignorelist=react-android,hermes-android
+org.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=1024m
+```
 
-- **Android**: Press the <kbd>R</kbd> key twice or select **"Reload"** from the **Dev Menu**, accessed via <kbd>Ctrl</kbd> + <kbd>M</kbd> (Windows/Linux) or <kbd>Cmd ⌘</kbd> + <kbd>M</kbd> (macOS).
-- **iOS**: Press <kbd>R</kbd> in iOS Simulator.
+The ignorelist is not optional — Jetifier runs out of heap transforming the React Native
+AARs, which need no rewriting anyway. The official example ships the same line.
 
-## Congratulations! :tada:
+Alternative, if you do not need UPI: `excludedMicroSDKs = ['hyperupi']` in the root
+`build.gradle`.
 
-You've successfully run and modified your React Native App. :partying_face:
+### iOS — asset provisioning
 
-### Now what?
+`ios/Podfile` runs HyperSDK's `Fuse.rb` in `post_install`, which downloads the SDK assets
+**and** the `VerifyHyperAssets.h` header the framework's public umbrella header imports.
+Without it the build fails with `'HyperSDK/VerifyHyperAssets.h' file not found`.
 
-- If you want to add this new React Native code to an existing application, check out the [Integration guide](https://reactnative.dev/docs/integration-with-existing-apps).
-- If you're curious to learn more about React Native, check out the [docs](https://reactnative.dev/docs/getting-started).
+Fuse needs `ios/MerchantConfig.txt` to exist. When it is missing, Fuse prints one easily
+missed line, exits 0, and **deletes `Pods/HyperSDK/`** — so re-run `pod install` after fixing.
 
-# Troubleshooting
+### iOS — AppDelegate conformance
 
-If you're having issues getting the above steps to work, see the [Troubleshooting](https://reactnative.dev/docs/troubleshooting) page.
+`AppDelegate.swift` implements `HyperSdkReactDelegate.getReactNativeFactory()`, required on
+RN >= 0.78 with a Swift AppDelegate so the SDK can render merchant views inside its payment
+page.
 
-# Learn More
+## Running
 
-To learn more about React Native, take a look at the following resources:
+```sh
+npm install
+nvm use 20.20.2
+npm start -- --reset-cache      # credentials.local.json is bundled; a plain restart misses edits
+```
 
-- [React Native Website](https://reactnative.dev) - learn more about React Native.
-- [Getting Started](https://reactnative.dev/docs/environment-setup) - an **overview** of React Native and how setup your environment.
-- [Learn the Basics](https://reactnative.dev/docs/getting-started) - a **guided tour** of the React Native **basics**.
-- [Blog](https://reactnative.dev/blog) - read the latest official React Native **Blog** posts.
-- [`@facebook/react-native`](https://github.com/facebook/react-native) - the Open Source; GitHub **repository** for React Native.
+Then, in a second terminal:
+
+```sh
+npm run ios       # or: npm run android
+```
+
+For iOS, run `pod install --project-directory=ios` first if pods are stale.
+
+## Using the harness
+
+Toggle to **Show HyperSDK Test**, then:
+
+1. **Initiate** — `createHyperServices()`, signs the initiate payload, calls
+   `initiate()` on `in.juspay.hyperpay`. Wait for `initiate_result`; status flips to
+   `INITIALISED`.
+2. **Order + sign** — creates (or reuses) a sandbox order, signs `orderDetails`, and builds
+   the fragment payload.
+3. The **HyperFragmentView** mounts once a payload exists and renders the payment widget.
+
+The event panel logs every native event. Useful signals:
+
+| What you see | Meaning |
+|---|---|
+| `Fabric: YES` | New Architecture is live |
+| `errorCode: "JP_003"` | Unknown action — the payload's `action` is not a real one |
+| A **red** box with text | Fabric fell back to `RCTUnimplementedNativeComponentView` |
+| A plain **empty** box | Component resolved fine; `process` drew nothing (check `process_result`) |
+
+The widget only mounts after a payload exists, mirroring the official example
+(`ProcessScreen.tsx:944`). `HyperSdkReact.terminate()` runs on unmount — HyperServices is a
+native singleton that otherwise keeps drawing over the next screen.
+
+## Files
+
+| File | Purpose |
+|---|---|
+| `TestHyperSDK.tsx` | The harness |
+| `hyperApi.ts` | Order creation + RSA signing (JS port of the example's `HyperAPIUtils`) |
+| `credentials.local.json` | Your sandbox credentials — **gitignored** |
+| `NEW_ARCH_INTEGRATION_FINDINGS.md` | What reproduced, what did not, and why |

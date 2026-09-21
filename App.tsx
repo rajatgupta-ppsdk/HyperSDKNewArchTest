@@ -35,23 +35,23 @@ function AppContent({ showHyperTest, setShowHyperTest }: { showHyperTest: boolea
   const safeAreaInsets = useSafeAreaInsets();
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { paddingTop: safeAreaInsets.top }]}>
       <View style={styles.toggleContainer}>
         <Button
           title={showHyperTest ? 'Show Default Screen' : 'Show HyperSDK Test'}
           onPress={() => setShowHyperTest(!showHyperTest)}
         />
       </View>
-      <ScrollView style={styles.scrollContainer}>
-        {showHyperTest ? (
-          <TestHyperSDK />
-        ) : (
+      {showHyperTest ? (
+        <TestHyperSDK />
+      ) : (
+        <ScrollView style={styles.scrollContainer}>
           <NewAppScreen
             templateFileName="App.tsx"
             safeAreaInsets={safeAreaInsets}
           />
-        )}
-      </ScrollView>
+        </ScrollView>
+      )}
     </View>
   );
 }
