@@ -30,6 +30,20 @@ target 'HyperSDKNewArchTest' do
       :mac_catalyst_enabled => false,
       # :ccache_enabled => true
     )
+    # hyper-sdk-react exposes its HyperSdkReactDelegate protocol via public
+    # headers but ships no module map, so Swift AppDelegate conformance
+    # ("import hyper_sdk_react") fails. Write one here so pod install doesn't
+    # wipe it (same pattern ReactAppDependencyProvider uses).
+    module_map = File.join(__dir__, "Pods/Headers/Public/hyper-sdk-react/module.modulemap")
+    module_dir = File.dirname(module_map)
+    FileUtils.mkdir_p(module_dir)
+    File.write(module_map, <<~MODULEMAP)
+      module hyper_sdk_react {
+          header "HyperSdkReact.h"
+          export *
+      }
+    MODULEMAP
+
     # HyperSDK asset provisioning - required, mirrors the official example app.
     # Downloads assets into HyperSDK.xcframework (supplies VerifyHyperAssets.h).
     fuse_path = "./Pods/HyperSDK/Fuse.rb"

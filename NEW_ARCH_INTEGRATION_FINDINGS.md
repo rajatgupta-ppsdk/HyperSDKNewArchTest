@@ -1,7 +1,13 @@
 # HyperSDK + React Native New Architecture — Final Findings
 
-**RN** 0.86.2 · **hyper-sdk-react** 5.0.34 · **newArchEnabled** `true` · **Node** 20.20.2
+**RN** 0.86.2 · **hyper-sdk-react** 5.0.34 (pinned) · **newArchEnabled** `true` · **Node** 20.20.2
 **Reference:** `juspay/hyper-sdk-react` @ `e86e17b` (5.0.35), `example/`
+
+> **On versions.** The merchant cited two: **5.0.34** in the original ticket, and **5.0.35**
+> in their later blank-widget reproduction. This project pins **5.0.34** exactly, matching
+> the original report. Both were verified to build on RN 0.86.2 with the New Architecture
+> enabled (iOS `** BUILD SUCCEEDED **`, Android `BUILD SUCCESSFUL`). The one behavioural
+> difference between them is defect **A** below, which 5.0.35 fixes.
 
 ---
 
